@@ -1,123 +1,89 @@
-# Todo Summary Assistant
+# Todo Summary Assistant: DevOps Delivery Pipeline
 
-A full-stack application to manage personal to-do items, summarize pending tasks using Cohere LLM, and send the summary to a Slack channel.
-
-## Table of Contents
-
-* [Features](#features)
-* [Tech Stack](#tech-stack)
-* [Setup Instructions](#setup-instructions)
-    * [Prerequisites](#prerequisites)
-    * [Backend Setup](#backend-setup)
-    * [Frontend Setup](#frontend-setup)
-* [LLM (Cohere) Setup](#llm-cohere-setup)
-* [Slack Integration Setup](#slack-integration-setup)
-* [Design/Architecture Decisions](#designarchitecture-decisions)
-
+A full-stack app to manage to-do items, summarize pending tasks with the Cohere LLM and send the summary to Slack. This repository adds a production-style DevOps pipeline: Docker, GitHub Actions CI/CD, AWS EC2 + RDS, and Prometheus + Grafana monitoring.
 
 ## Features
+- Create, edit and delete to-do items.
+- Summarize pending to-dos with Cohere and post the summary to a Slack channel via an Incoming Webhook.
+- Success/failure notifications in the UI.
 
-* **Create, Edit, Delete To-Do Items:** Full CRUD operations for personal to-do items.
-* **View To-Do List:** Display current to-do items with their status.
-* **Summarize Pending To-Dos:** Utilizes Cohere LLM to generate a concise summary of all pending to-do items.
-* **Send Summary to Slack:** Automatically posts the generated summary to a configured Slack channel using Incoming Webhooks.
-* **Notifications:** Provides success/failure messages for Slack operations.
+## Tech stack
+- Frontend: React, Axios
+- Backend: Spring Boot (Java 17), Maven, Spring Data JPA, OkHttp
+- Database: MySQL (AWS RDS in production)
+- DevOps: Docker, Docker Compose, GitHub Actions, AWS EC2/RDS/IAM, Prometheus, Grafana, node-exporter, cAdvisor
 
-## Tech Stack
+## Architecture
+GitHub push -> GitHub Actions (test, build, push images, deploy) -> EC2 (Docker Compose: frontend, backend, Prometheus, Grafana, node-exporter, cAdvisor) -> RDS MySQL (private).
+See `aws/architecture-diagram.png` and `aws/aws-setup.md`.
 
-* **Frontend:** HTML, CSS, Javascript, React, Axios(for API calls), 
-* **Backend:** Spring Boot (Java 17+), Maven
-* **Database:** MySQL (via Spring Data JPA and Hibernate)
-* **LLM:** Cohere API
-* **Messaging:** Slack Incoming Webhooks
-* **HTTP Client:** OkHttp (for Cohere and Slack API calls in backend)
+## Runtime requirements
+- Backend: Java 17+, Maven, MySQL 8
+- Frontend: Node.js 18+, npm
+- Docker and Docker Compose v2
+- A Cohere API key and a Slack Incoming Webhook URL
 
-## Setup Instructions
+## Environment variables
+All settings are read from the environment. No secrets are committed (see `.env.example`).
 
-### Prerequisites
+| Variable | Purpose |
+|---|---|
+| DB_URL | JDBC URL of MySQL (RDS endpoint in production) |
+| DB_USER | Database user |
+| DB_PASSWORD | Database password |
+| COHERE_API_KEY | Cohere API key (create one at cohere.ai) |
+| SLACK_WEBHOOK_URL | Slack Incoming Webhook URL (create at api.slack.com/apps) |
+| CORS_ALLOWED_ORIGINS | Allowed frontend origin(s) |
 
-* Java Development Kit (JDK) 17 or higher
-* Node.js and npm (or yarn)
-* MySQL Server running locally or accessible remotely
-* A Cohere API Key
-* A Slack Workspace and an Incoming Webhook URL
+## Run locally
+1. Start MySQL: `docker run --name todo-mysql -e MYSQL_ROOT_PASSWORD=<password> -e MYSQL_DATABASE=todo_db -p 3306:3306 -d mysql:8`
+2. Set the variables in the terminal (Windows: `set DB_PASSWORD=<password>`, Linux/macOS: `export DB_PASSWORD=<password>`). Do not write them in any file.
+3. Backend: `cd Backend/todo-summary-assistant && mvn spring-boot:run` (port 8080).
+4. Frontend: `cd Frontend/todo && npm install && npm start` (port 3000).
 
-### Backend Setup
+Or run the whole stack with Docker Compose: copy `.env.example` to `.env`, fill in the values, then `docker compose up -d --build`.
 
-1.  **Clone the repository:**
-    ```bash
-    git clone [https://github.com/your-username/todo-summary-assistant.git](https://github.com/your-username/todo-summary-assistant.git)
-    cd todo-summary-assistant/backend
-    ```
-2.  **Configure `application.properties`:**
-    Open `src/main/resources/application.properties` and update the following:
-    ```properties
-    spring.datasource.url=jdbc:mysql://localhost:3306/todo_db?createDatabaseIfNotExist=true
-    spring.datasource.username=root
-    spring.datasource.password=your_mysql_password_here # <-- IMPORTANT: Replace with your MySQL root password
-    cohere.api.key=YOUR_COHERE_API_KEY # <-- IMPORTANT: Replace with your Cohere API Key
-    slack.webhook.url=YOUR_SLACK_WEBHOOK_URL # <-- IMPORTANT: Replace with your Slack Incoming Webhook URL
-    ```
-3.  **Build and Run:**
-    ```bash
-    mvn clean install
-    mvn spring-boot:run
-    ```
-    The backend will start on `http://localhost:8080`.
+## Docker design choices
+- Multi-stage builds: build tools (Maven, Node) stay in the build stage and only the runtime is shipped, which keeps images small.
+- Containers run as a non-root user.
+- Configuration comes from environment variables only.
+- `.dockerignore` files keep the build context and images lean.
+- Health checks let Docker and the pipeline detect an unhealthy backend.
 
-### Frontend Setup
+## CI/CD pipeline (`.github/workflows/ci-cd.yml`)
+Triggers on push and pull request to main.
+1. **backend-test**: builds the backend with Maven and runs tests.
+2. **frontend-test**: installs dependencies, runs tests and builds the React app.
+3. **build-and-push**: builds both Docker images, tags them with the commit SHA and pushes them to <<Docker Hub or ECR>>.
+4. **deploy**: connects to EC2 and runs `scripts/deploy.sh`, which pulls the new images and restarts the containers.
+5. **health check**: calls `/actuator/health` after deployment; the job fails if it is not UP.
 
-1.  **Navigate to the frontend directory:**
-    ```bash
-    cd ../frontend
-    ```
-2.  **Install dependencies:**
-    ```bash
-    npm install
-    # or yarn install
-    ```
-3.  **Run the React application:**
-    ```bash
-    npm start
-    # or yarn start
-    ```
-    The frontend will open in your browser at `http://localhost:3000`.
+Each stage depends on the previous one (`needs`), so the pipeline fails fast. All credentials are stored in GitHub Actions secrets.
 
-## LLM (Cohere) Setup
+## AWS deployment
+- EC2 with Docker, accessed through SSM Session Manager, using the IAM role `todo-ec2-role` (no AWS keys in code).
+- RDS MySQL (`database-1`), not publicly accessible. Its security group `todo-rds-sg` allows port 3306 only from `todo-ec2-sg`.
+- DB credentials are kept in `/opt/todo/.env` on the server, outside the repository.
+- Details: `aws/aws-setup.md`.
 
-1.  **Create a Cohere Account:** Visit [Cohere.ai](https://cohere.ai/) and sign up for a free account.
-2.  **Obtain API Key:** Once logged in, navigate to your dashboard or API keys section to find your API key.
-3.  **Update `application.properties`:** Paste your Cohere API key into `cohere.api.key` in the backend's `application.properties` file.
+## Monitoring
+Prometheus scrapes the backend (`/actuator/prometheus`), node-exporter and cAdvisor. Grafana shows request rate, errors, latency, CPU, memory, disk and container restarts. Alert rules are in `monitoring/alert-rules.yml`.
+- App: `http://<<EC2-IP>>`
+- Grafana: `http://<<EC2-IP>>:3001`
+- Prometheus: `http://<<EC2-IP>>:9090`
 
-## Slack Integration Setup
+## Changes to application code (DevOps enablement only)
+- `application.properties` reads all settings from environment variables instead of hardcoded values.
+- Added Spring Boot Actuator and the Micrometer Prometheus registry to expose `/actuator/health` and `/actuator/prometheus`.
+- The CI frontend build uses `CI=false` so ESLint warnings do not fail the build.
+No business logic was changed.
 
-1.  **Create a Slack App:**
-    * Go to [api.slack.com/apps](https://api.slack.com/apps).
-    * Click "Create New App" and choose "From scratch".
-    * Give your app a name (e.g., "Todo Summary Bot") and select your Slack workspace.
-2.  **Activate Incoming Webhooks:**
-    * From your app's settings page, navigate to "Features" -> "Incoming Webhooks".
-    * Toggle the "Activate Incoming Webhooks" switch to "On".
-    * Scroll down and click the "Add New Webhook to Workspace" button.
-    * Select the specific channel where you want the to-do summaries to be posted (e.g., `#general`, `#todos`, or a new channel).
-    * Click "Allow".
-3.  **Copy Webhook URL:**
-    * A unique Webhook URL will be generated. Copy this URL.
-4.  **Update `application.properties`:** Paste this URL into `slack.webhook.url` in the backend's `application.properties` file.
+## Assumptions
+- The default VPC and a public subnet are used for EC2. For RDS, "private" means Public access = No plus a restricted security group.
+- Free-tier instance types are used. AWS resources should be stopped or deleted after the review.
+- Failure and rollback plans: `FAILURE_AND_ROLLBACK.md`. Monitoring design: `MONITORING_AND_OPERATIONS.md`.
 
-## Design/Architecture Decisions
-
-* **Separation of Concerns:** The project is cleanly separated into frontend (React) and backend (Spring Boot) directories, allowing independent development and deployment.
-* **RESTful API:** The backend exposes standard RESTful endpoints for managing todos, ensuring clear and predictable communication with the frontend.
-* **Spring Data JPA:** Leveraged for efficient and simplified database interactions with MySQL, reducing boilerplate code for data access.
-* **Service Layer:** Business logic (CRUD operations, LLM calls, Slack calls) is encapsulated within dedicated service classes, promoting modularity and testability.
-* **External API Integration:** `OkHttp` was chosen as a lightweight and efficient HTTP client for making external API calls to Cohere and Slack.
-* **CORS Configuration:** Explicit CORS configuration in Spring Boot ensures that the React frontend can communicate with the backend.
-* **Error Handling:** Basic error handling is implemented on both frontend and backend to provide user feedback and log issues.
-* **LLM Prompt Engineering:** A simple prompt is used for Cohere to instruct it on summarizing the list of to-do items. This can be further refined for better results.
-* **Notification System:** A simple notification component in React provides immediate feedback to the user about operations.
-
-## Demo Images
+## Demo images
 
 ![Screenshot (1146)](https://github.com/user-attachments/assets/53fe53e3-b527-4659-9ab6-b462ae034fbd)
 

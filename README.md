@@ -54,7 +54,7 @@ Or run the whole stack with Docker Compose: copy `.env.example` to `.env`, fill 
 Triggers on push and pull request to main.
 1. **backend-test**: builds the backend with Maven and runs tests.
 2. **frontend-test**: installs dependencies, runs tests and builds the React app.
-3. **build-and-push**: builds both Docker images, tags them with the commit SHA and pushes them to <<Docker Hub or ECR>>.
+3. **build-and-push**: builds both Docker images, tags them with the commit SHA and pushes them to Docker Hub.
 4. **deploy**: connects to EC2 and runs `scripts/deploy.sh`, which pulls the new images and restarts the containers.
 5. **health check**: calls `/actuator/health` after deployment; the job fails if it is not UP.
 
@@ -68,9 +68,9 @@ Each stage depends on the previous one (`needs`), so the pipeline fails fast. Al
 
 ## Monitoring
 Prometheus scrapes the backend (`/actuator/prometheus`), node-exporter and cAdvisor. Grafana shows request rate, errors, latency, CPU, memory, disk and container restarts. Alert rules are in `monitoring/alert-rules.yml`.
-- App: `http://<<EC2-IP>>`
-- Grafana: `http://<<EC2-IP>>:3001`
-- Prometheus: `http://<<EC2-IP>>:9090`
+- App: `http://3.27.96.146`
+- Grafana: `http://3.27.96.146:3001`
+- Prometheus: `http://3.27.96.146:9090`
 
 ## Changes to application code (DevOps enablement only)
 - `application.properties` reads all settings from environment variables instead of hardcoded values.

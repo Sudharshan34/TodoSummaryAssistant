@@ -1,7 +1,8 @@
 import axios from 'axios';
 
-//Springboot backend url
-const API_BASE_URL = 'http://localhost:8080/api/todos'; 
+// Backend URL: relative by default, so it works behind nginx (Docker/EC2)
+// and with the dev proxy locally. Override at build time with REACT_APP_API_URL.
+const API_BASE_URL = process.env.REACT_APP_API_URL || '/api/todos';
 
 const todoService = {
   getAllTodos: () => axios.get(API_BASE_URL),

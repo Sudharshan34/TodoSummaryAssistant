@@ -1,0 +1,85 @@
+services:
+  # Local-only database. On AWS the app uses RDS instead (this service is skipped).
+  mysql:
+    image: mysql:8
+    profiles: ["local-db"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: todo_db
+    volumes:
+      - mysql-data:/var/lib/mysql
+    restart: unless-stopped
+
+  backend:
+    build: ./Backend/todo-summary-assistant
+    image: ${BACKEND_IMAGE:-todo-backend:local}
+    environment:
+      DB_URL: ${DB_URL}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      COHERE_API_KEY: ${COHERE_API_KEY}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  frontend:
+    build: ./Frontend/todo
+    image: ${FRONTEND_IMAGE:-todo-frontend:local}
+    environment:
+      BACKEND_URL: http://backend:8080
+    ports:
+      - "${FRONTEND_PORT:-3000}:8080"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana-dashboard.json:/var/lib/grafana/dashboards/grafana-dashboard.json:ro 
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    command:
+      - '--path.rootfs=/host'
+    pid: host
+    volumes:
+      - /:/host:ro
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  prometheus-data:
+  grafana-data:

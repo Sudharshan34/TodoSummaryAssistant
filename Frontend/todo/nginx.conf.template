@@ -1,0 +1,17 @@
+server {
+    listen 8080;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # API calls go to the backend (address comes from BACKEND_URL)
+    location /api/ {
+        proxy_pass ${BACKEND_URL};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # React single-page app
+    location / {
+        try_files $uri /index.html;
+    }
+}

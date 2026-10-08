@@ -23,11 +23,12 @@ Region: `ap-southeast-2` (Sydney). All resources are in the default VPC (`vpc-03
 
 | Port | Source | Purpose |
 |---|---|---|
+| 22 | My IP only (/32) | SSH, admin fallback |
 | 80 | Anywhere (0.0.0.0/0) | Web application |
-| 3001 | <<My IP or Anywhere>> | Grafana |
-| 9090 | <<My IP or Anywhere>> | Prometheus |
+| 3001 | My IP only (/32) | Grafana |
+| 9090 | My IP only (/32) | Prometheus |
 
-SSH (port 22) is not open. Server access uses SSM Session Manager, so no inbound admin port and no SSH keys are needed. The backend port 8080 is not exposed to the internet; it is only reachable inside the Docker network.
+SSH (port 22) is restricted to a single administrator IP (/32). Day-to-day server access uses SSM Session Manager, so no SSH keys are needed. Grafana (3001) and Prometheus (9090) are also restricted to the administrator IP. Only port 80 is open to the internet. The backend port 8080 is not exposed; it is only reachable inside the Docker network.
 
 **`todo-rds-sg` (inbound)**
 

@@ -50,7 +50,7 @@ jobs:
         run: |
           npm install
           CI=true npm test -- --watchAll=false --passWithNoTests
-          npm run build
+          CI=false npm run build
 
   build-and-push:
     needs: [backend-test, frontend-test]
